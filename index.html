@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="manifest.json">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Sine Wave Synthesizer</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: manipulation;
+    }
+    body {
+      margin: 0;
+      padding: 16px 8px;
+      background-color: #2b3a4a;
+      color: #ffffff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+    h1 {
+      font-size: 20px;
+      margin: 0 0 12px 0;
+      font-weight: bold;
+      letter-spacing: 1px;
+    }
+
+    /* オクターブ切り替えスイッチ (スマホ/PC共通) */
+    .octave-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 16px;
+      background: rgba(0, 0, 0, 0.25);
+      padding: 6px 12px;
+      border-radius: 20px;
+    }
+    .octave-label {
+      font-size: 12px;
+      color: #cbd5e1;
+    }
+    .oct-btn {
+      background: #3a4d63;
+      border: 1px solid #5a7391;
+      color: #fff;
+      padding: 6px 12px;
+      font-size: 13px;
+      font-weight: bold;
+      border-radius: 12px;
+      cursor: pointer;
+    }
+    .oct-btn.active {
+      background: #e65100;
+      border-color: #ff9800;
+    }
+
+    /* 鍵盤コンテナ */
+    .keyboard-container {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      width: 100%;
+      max-width: 460px;
+    }
+    .keyboard-row {
+      position: relative;
+      height: 140px;
+      background: #1e293b;
+      border-radius: 8px;
+      padding: 6px;
+      display: flex;
+      justify-content: center;
+      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
+    }
+    .white-keys {
+      display: flex;
+      width: 100%;
+      height: 100%;
+      position: relative;
+    }
+    .key {
+      position: relative;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      align-items: center;
+      padding-bottom: 8px;
+      border-radius: 0 0 5px 5px;
+    }
+    .white-key {
+      flex: 1;
+      background: #ffffff;
+      margin: 0 1.5px;
+      border: 1px solid #ccc;
+      color: #333;
+      z-index: 1;
+    }
+    .white-key.active-white {
+      background: #ffab91 !important;
+    }
+    .black-keys {
+      position: absolute;
+      top: 6px;
+      left: 6px;
+      right: 6px;
+      height: 60%;
+      pointer-events: none;
+      z-index: 2;
+    }
+    .black-key {
+      position: absolute;
+      width: 8.5%;
+      height: 100%;
+      background: #111111;
+      color: #ffffff;
+      pointer-events: auto;
+      border-radius: 0 0 4px 4px;
+      box-shadow: 0 3px 6px rgba(0, 0, 0, 0.5);
+    }
+    .black-key.active-black {
+      background: #e65100 !important;
+    }
+
+    /* キーラベル表示 */
+    .key-name {
+      font-size: 13px;
+      font-weight: bold;
+      line-height: 1.1;
+    }
+    .key-sub {
+      font-size: 10px;
+      opacity: 0.7;
+    }
+
+    /* 説明テキスト */
+    .footer-desc {
+      margin-top: 16px;
+      font-size: 11px;
+      color: #94a3b8;
+      text-align: center;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Sine Wave Synthesizer</h1>
+
+  <!-- タッチ操作向けオクターブ設定 -->
+  <div class="octave-controls">
+    <span class="octave-label">Touch Octave:</span>
+    <button class="oct-btn" data-oct="-12">-1</button>
+    <button class="oct-btn active" data-oct="0">±0</button>
+    <button class="oct-btn" data-oct="12">+1</button>
+    <button class="oct-btn" data-oct="24">+2</button>
+  </div>
+
+  <div class="keyboard-container">
+    <!-- 上段鍵盤 (C3〜C4相当) -->
+    <div class="keyboard-row" id="upper-keyboard">
+      <div class="white-keys">
+        <div class="key white-key" id="key-KeyW" data-code="KeyW" data-note="12"><div class="key-name">W</div><div class="key-sub">[C]</div></div>
+        <div class="key white-key" id="key-KeyE" data-code="KeyE" data-note="14"><div class="key-name">E</div><div class="key-sub">[D]</div></div>
+        <div class="key white-key" id="key-KeyR" data-code="KeyR" data-note="16"><div class="key-name">R</div><div class="key-sub">[E]</div></div>
+        <div class="key white-key" id="key-KeyT" data-code="KeyT" data-note="17"><div class="key-name">T</div><div class="key-sub">[F]</div></div>
+        <div class="key white-key" id="key-KeyY" data-code="KeyY" data-note="19"><div class="key-name">Y</div><div class="key-sub">[G]</div></div>
+        <div class="key white-key" id="key-KeyU" data-code="KeyU" data-note="21"><div class="key-name">U</div><div class="key-sub">[A]</div></div>
+        <div class="key white-key" id="key-KeyI" data-code="KeyI" data-note="23"><div class="key-name">I</div><div class="key-sub">[B]</div></div>
+        <div class="key white-key" id="key-KeyO" data-code="KeyO" data-note="24"><div class="key-name">O</div><div class="key-sub">[C]</div></div>
+      </div>
+      <div class="black-keys">
+        <div class="key black-key" style="left: 8.5%;" id="key-Digit3" data-code="Digit3" data-note="13"><div class="key-name">3</div><div class="key-sub">[C#]</div></div>
+        <div class="key black-key" style="left: 21.0%;" id="key-Digit4" data-code="Digit4" data-note="15"><div class="key-name">4</div><div class="key-sub">[Eb]</div></div>
+        <div class="key black-key" style="left: 45.8%;" id="key-Digit6" data-code="Digit6" data-note="18"><div class="key-name">6</div><div class="key-sub">[F#]</div></div>
+        <div class="key black-key" style="left: 58.2%;" id="key-Digit7" data-code="Digit7" data-note="20"><div class="key-name">7</div><div class="key-sub">[Ab]</div></div>
+        <div class="key black-key" style="left: 70.8%;" id="key-Digit8" data-code="Digit8" data-note="22"><div class="key-name">8</div><div class="key-sub">[Bb]</div></div>
+      </div>
+    </div>
+
+    <!-- 下段鍵盤 (C2〜C3相当：男性最低音域カバー) -->
+    <div class="keyboard-row" id="lower-keyboard">
+      <div class="white-keys">
+        <div class="key white-key" id="key-KeyZ" data-code="KeyZ" data-note="0"><div class="key-name">Z</div><div class="key-sub">[C]</div></div>
+        <div class="key white-key" id="key-KeyX" data-code="KeyX" data-note="2"><div class="key-name">X</div><div class="key-sub">[D]</div></div>
+        <div class="key white-key" id="key-KeyC" data-code="KeyC" data-note="4"><div class="key-name">C</div><div class="key-sub">[E]</div></div>
+        <div class="key white-key" id="key-KeyV" data-code="KeyV" data-note="5"><div class="key-name">V</div><div class="key-sub">[F]</div></div>
+        <div class="key white-key" id="key-KeyB" data-code="KeyB" data-note="7"><div class="key-name">B</div><div class="key-sub">[G]</div></div>
+        <div class="key white-key" id="key-KeyN" data-code="KeyN" data-note="9"><div class="key-name">N</div><div class="key-sub">[A]</div></div>
+        <div class="key white-key" id="key-KeyM" data-code="KeyM" data-note="11"><div class="key-name">M</div><div class="key-sub">[B]</div></div>
+        <div class="key white-key" id="key-Comma" data-code="Comma" data-note="12"><div class="key-name">,</div><div class="key-sub">[C]</div></div>
+      </div>
+      <div class="black-keys">
+        <div class="key black-key" style="left: 8.5%;" id="key-KeyS" data-code="KeyS" data-note="1"><div class="key-name">S</div><div class="key-sub">[C#]</div></div>
+        <div class="key black-key" style="left: 21.0%;" id="key-KeyD" data-code="KeyD" data-note="3"><div class="key-name">D</div><div class="key-sub">[Eb]</div></div>
+        <div class="key black-key" style="left: 45.8%;" id="key-KeyG" data-code="KeyG" data-note="6"><div class="key-name">G</div><div class="key-sub">[F#]</div></div>
+        <div class="key black-key" style="left: 58.2%;" id="key-KeyH" data-code="KeyH" data-note="8"><div class="key-name">H</div><div class="key-sub">[Ab]</div></div>
+        <div class="key black-key" style="left: 70.8%;" id="key-KeyJ" data-code="KeyJ" data-note="10"><div class="key-name">J</div><div class="key-sub">[Bb]</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer-desc">
+    画面タップまたはPCキーボードで演奏 / 最大4和音<br>
+    PC: Shift(+1oct) / Shift+Alt(+2oct)<br>
+    上段: W〜O / 下段: Z〜, (基準C2〜)
+  </div>
+
+  <script>
+    const MAX_POLYPHONY = 4;
+    const BASE_MIDI_NOTE = 36; // C2 (約65.4Hz)
+    let audioCtx = null;
+    const activeVoices = new Map(); // identifier -> { osc, gainNode, keyEl }
+    let touchOctaveShift = 0;
+
+    const codeMap = {
+      'KeyZ': 0, 'KeyS': 1, 'KeyX': 2, 'KeyD': 3, 'KeyC': 4,
+      'KeyV': 5, 'KeyG': 6, 'KeyB': 7, 'KeyH': 8, 'KeyN': 9,
+      'KeyJ': 10, 'KeyM': 11, 'Comma': 12,
+      'KeyW': 12, 'Digit3': 13, 'KeyE': 14, 'Digit4': 15, 'KeyR': 16,
+      'KeyT': 17, 'Digit6': 18, 'KeyY': 19, 'Digit7': 20, 'KeyU': 21,
+      'Digit8': 22, 'KeyI': 23, 'KeyO': 24
+    };
+
+    function initAudio() {
+      if (!audioCtx) {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        audioCtx = new AudioContextClass();
+      }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+    }
+
+    function getFrequency(midiNote) {
+      return 440 * Math.pow(2, (midiNote - 69) / 12);
+    }
+
+    function getAdjustedVolume(midiNote) {
+      // 基準440Hz比での聴感補正 (低音ブースト)
+      const freq = getFrequency(midiNote);
+      let vol = 0.25 * Math.pow(440 / Math.max(freq, 40), 0.35) * 1.45;
+      return Math.min(Math.max(vol, 0.05), 0.7);
+    }
+
+    function startTone(id, relativeNote, octaveShift, keyEl) {
+      initAudio();
+      if (activeVoices.has(id)) return;
+      if (activeVoices.size >= MAX_POLYPHONY) return;
+
+      const midiNote = BASE_MIDI_NOTE + relativeNote + octaveShift;
+      const targetVolume = getAdjustedVolume(midiNote);
+
+      const osc = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.value = getFrequency(midiNote);
+
+      const now = audioCtx.currentTime;
+      gainNode.gain.setValueAtTime(0, now);
+      gainNode.gain.linearRampToValueAtTime(targetVolume, now + 0.02);
+
+      osc.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+      osc.start();
+
+      if (keyEl) {
+        keyEl.classList.add(keyEl.classList.contains('black-key') ? 'active-black' : 'active-white');
+      }
+
+      activeVoices.set(id, { osc, gainNode, keyEl });
+    }
+
+    function stopTone(id) {
+      const voice = activeVoices.get(id);
+      if (!voice || !audioCtx) return;
+
+      const { osc, gainNode, keyEl } = voice;
+      const now = audioCtx.currentTime;
+
+      gainNode.gain.cancelScheduledValues(now);
+      gainNode.gain.setValueAtTime(gainNode.gain.value, now);
+      gainNode.gain.linearRampToValueAtTime(0.0001, now + 0.05);
+
+      setTimeout(() => {
+        try { osc.stop(); osc.disconnect(); } catch (e) {}
+      }, 60);
+
+      if (keyEl) {
+        keyEl.classList.remove('active-white', 'active-black');
+      }
+
+      activeVoices.delete(id);
+    }
+
+    // --- オクターブボタンスイッチ (タッチ用) ---
+    document.querySelectorAll('.oct-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        document.querySelectorAll('.oct-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        touchOctaveShift = parseInt(btn.dataset.oct, 10);
+      });
+    });
+
+    // --- タッチイベント（スマホ対応・マルチタッチ） ---
+    const allKeyElements = document.querySelectorAll('.key');
+
+    allKeyElements.forEach(keyEl => {
+      // 画面タッチ開始
+      keyEl.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        const note = parseInt(keyEl.dataset.note, 10);
+        for (let i = 0; i < e.changedTouches.length; i++) {
+          const touch = e.changedTouches[i];
+          startTone('touch-' + touch.identifier, note, touchOctaveShift, keyEl);
+        }
+      }, { passive: false });
+
+      // 画面タッチ終了 / キャンセル
+      const handleTouchEnd = (e) => {
+        e.preventDefault();
+        for (let i = 0; i < e.changedTouches.length; i++) {
+          const touch = e.changedTouches[i];
+          stopTone('touch-' + touch.identifier);
+        }
+      };
+
+      keyEl.addEventListener('touchend', handleTouchEnd, { passive: false });
+      keyEl.addEventListener('touchcancel', handleTouchEnd, { passive: false });
+
+      // PCでのマウス操作にも対応
+      keyEl.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        const note = parseInt(keyEl.dataset.note, 10);
+        startTone('mouse-' + keyEl.dataset.code, note, touchOctaveShift, keyEl);
+      });
+      keyEl.addEventListener('mouseup', () => stopTone('mouse-' + keyEl.dataset.code));
+      keyEl.addEventListener('mouseleave', () => stopTone('mouse-' + keyEl.dataset.code));
+    });
+
+    // --- PC物理キーボードイベント ---
+    window.addEventListener('keydown', (e) => {
+      if (e.repeat) return;
+      if (codeMap.hasOwnProperty(e.code)) {
+        let oct = 0;
+        if (e.shiftKey && e.altKey) oct = 24;
+        else if (e.shiftKey) oct = 12;
+
+        const keyEl = document.getElementById('key-' + e.code);
+        startTone(e.code, codeMap[e.code], oct, keyEl);
+      }
+    });
+
+    window.addEventListener('keyup', (e) => {
+      if (codeMap.hasOwnProperty(e.code)) {
+        stopTone(e.code);
+      }
+    });
+
+    // オフライン動作用サービスワーカーの登録
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch(err => {
+          console.log('SW registration failed: ', err);
+        });
+      });
+    }
+
+  </script>
+</body>
+</html>

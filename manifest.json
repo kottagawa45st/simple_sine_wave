@@ -1,0 +1,10 @@
+{
+  "name": "Sine Wave Synthesizer",
+  "short_name": "SineSynth",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#2b3a4a",
+  "theme_color": "#2b3a4a",
+  "orientation": "portrait"
+}
