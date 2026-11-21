@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ノコギリ波 フーリエ合成シミュレーター</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #111827; /* gray-900 */
+            color: #f3f4f6; /* gray-100 */
+        }
+        
+        /* Custom scrollbar */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #1f2937; /* gray-800 */
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #4b5563; /* gray-600 */
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #6b7280; /* gray-500 */
+        }
+
+        /* Canvas rendering optimization */
+        canvas {
+            image-rendering: -moz-crisp-edges;
+            image-rendering: -webkit-optimize-contrast;
+            image-rendering: crisp-edges;
+            image-rendering: pixelated;
+        }
+
+        /* Hide default number input spinners */
+        input[type="number"]::-webkit-outer-spin-button,
+        input[type="number"]::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        input[type="number"] {
+            -moz-appearance: textfield;
+        }
+
+        /* Custom spinner buttons */
+        .spin-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #374151; /* gray-700 */
+            color: #d1d5db; /* gray-300 */
+            font-size: 1rem;
+            cursor: pointer;
+            transition: background 0.1s;
+        }
+        .spin-btn:hover { background: #4b5563; }
+        .spin-btn:active { background: #6b7280; }
+        
+        /* Rounded corners for the stacked buttons */
+        .spin-btn-up { border-top-right-radius: 0.375rem; border-bottom: 1px solid #4b5563; }
+        .spin-btn-down { border-bottom-right-radius: 0.375rem; }
+    </style>
+</head>
+<body class="min-h-screen p-2 md:p-6 flex flex-col items-center">
+
+    <div class="max-w-4xl w-full bg-gray-800 rounded-2xl shadow-2xl overflow-hidden border border-gray-700 flex flex-col">
+        
+        <!-- Header / Waveform Canvas -->
+        <div class="p-4 border-b border-gray-700 bg-gray-900 relative flex flex-col">
+            <h1 class="text-xl md:text-2xl font-bold text-cyan-400 mb-3 text-center">ノコギリ波 フーリエ合成シミュレーター</h1>
+            
+            <div class="relative w-full h-48 md:h-64 bg-gray-950 rounded-xl border border-gray-700 overflow-hidden shadow-inner">
+                <span class="absolute top-2 left-3 text-xs text-gray-400 bg-gray-900/80 px-2 py-1 rounded">出力波形 (2周期分)</span>
+                <canvas id="waveform-canvas" class="w-full h-full block"></canvas>
+            </div>
+        </div>
+
+        <!-- Global Play Controls -->
+        <div class="px-4 pt-4 pb-2 flex justify-center gap-3 sticky top-0 z-10 bg-gray-800 border-b border-gray-700">
+            <button id="play-btn" class="flex-grow max-w-sm bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-3 px-4 rounded-full transition-colors shadow-[0_0_15px_rgba(6,182,212,0.4)] text-base md:text-lg flex items-center justify-center gap-2">
+                <span class="text-2xl">▶</span> 再生 (基音: 220Hz)
+            </button>
+            <button id="reset-btn" class="bg-gray-600 hover:bg-gray-500 text-white font-bold py-3 px-5 rounded-full transition-colors shadow-lg text-sm md:text-base flex items-center justify-center gap-1 whitespace-nowrap">
+                <span class="text-lg font-black">↺</span> リセット
+            </button>
+        </div>
+
+        <!-- Harmonics Controls Layout (Mobile-friendly list) -->
+        <div class="p-4 flex-grow flex flex-col min-h-0">
+            <div class="bg-gray-700 p-2 border-b border-gray-600 rounded-t-lg text-center font-bold text-gray-200 text-sm tracking-wider flex justify-center items-center gap-2">
+                各倍音の振幅コントロール
+            </div>
+            <!-- Scrollable container -->
+            <div id="harmonics-container" class="custom-scrollbar overflow-y-auto h-[50vh] md:h-[500px] bg-gray-800 rounded-b-lg border border-t-0 border-gray-600 p-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <!-- Injected by JS -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Configuration
+        const FUNDAMENTAL_FREQ = 220;
+        const MAX_HARMONIC = 90; // Up to 19,800Hz
+        
+        // State
+        let isPlaying = false;
+        let audioCtx = null;
+        let oscillator = null;
+        let gainNode = null;
+        
+        // Data: Multipliers array. Index 1 = 1st harmonic. Initial value is 1.0.
+        // Background calculation uses (1/n) * multipliers[n]
+        const multipliers = new Float32Array(MAX_HARMONIC + 1);
+        for (let i = 1; i <= MAX_HARMONIC; i++) {
+            multipliers[i] = 1.0;
+        }
+
+        // The specific harmonics the user wants to manipulate
+        const visibleHarmonics = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20, 23, 25, 27, 30, 32, 35, 37, 40, 44, 46, 50, 55, 60, 69, 73, 78, 82, 87, 90];
+
+        // DOM Elements
+        const canvas = document.getElementById('waveform-canvas');
+        const ctx = canvas.getContext('2d');
+        const playBtn = document.getElementById('play-btn');
+        const resetBtn = document.getElementById('reset-btn');
+        const harmonicsContainer = document.getElementById('harmonics-container');
+
+        // Handlers for modifying values
+        function changeMultiplier(index, delta) {
+            let currentVal = multipliers[index];
+            
+            // Prevent float precision issues
+            let newVal = Math.round((currentVal + delta) * 10) / 10;
+            
+            // Clamp values (0.0 to 5.0)
+            if (newVal < 0.0) newVal = 0.0;
+            if (newVal > 5.0) newVal = 5.0;
+            
+            multipliers[index] = newVal;
+            
+            const inputEl = document.getElementById(`harmonic-${index}`);
+            inputEl.value = newVal.toFixed(1);
+            
+            updateAll();
+        }
+
+        function handleInputBlur(e, index) {
+            let val = parseFloat(e.target.value);
+            if (isNaN(val) || val < 0.0) val = 0.0;
+            if (val > 5.0) val = 5.0;
+            
+            multipliers[index] = val;
+            e.target.value = val.toFixed(1);
+            updateAll();
+        }
+
+        function handleInputKeydown(e, index) {
+            if (e.key === 'Enter') {
+                e.target.blur();
+            }
+        }
+
+        // Generate UI only for visibleHarmonics
+        function generateHarmonicsUI() {
+            const fragment = document.createDocumentFragment();
+
+            visibleHarmonics.forEach(i => {
+                const freq = i * FUNDAMENTAL_FREQ;
+                const initialVal = multipliers[i].toFixed(1);
+                
+                const row = document.createElement('div');
+                const isFundamental = i === 1;
+                const bgColor = isFundamental ? 'bg-cyan-900/30 border-cyan-700' : 'bg-gray-750 border-gray-600';
+                
+                row.className = `flex justify-between items-center p-3 rounded-lg border ${bgColor}`;
+                
+                row.innerHTML = `
+                    <div class="flex flex-col truncate pr-2">
+                        <label class="text-base font-semibold text-gray-200">
+                            ${i}倍 <span class="font-normal text-gray-400 text-sm ml-1">(${freq}Hz)</span>
+                        </label>
+                        ${isFundamental ? '<span class="text-[0.65rem] text-cyan-400 font-bold -mt-0.5">基音 (1/1)</span>' : ''}
+                    </div>
+                    
+                    <div class="flex items-center flex-shrink-0">
+                        <div class="flex items-stretch shadow bg-gray-900 rounded-md border border-gray-600 focus-within:border-cyan-400 h-11 w-28">
+                            <!-- Input Box -->
+                            <input type="number" id="harmonic-${i}" min="0" max="5" step="0.1" value="${initialVal}"
+                                   class="w-16 bg-transparent text-white font-mono text-center focus:outline-none p-1 text-lg">
+                            
+                            <!-- Up/Down Stacked Buttons -->
+                            <div class="flex flex-col w-12 border-l border-gray-600">
+                                <button class="spin-btn spin-btn-up h-1/2" onclick="changeMultiplier(${i}, 0.1)">▲</button>
+                                <button class="spin-btn spin-btn-down h-1/2" onclick="changeMultiplier(${i}, -0.1)">▼</button>
+                            </div>
+                        </div>
+                        <span class="ml-2 text-sm font-bold text-gray-400 w-4">倍</span>
+                    </div>
+                `;
+
+                // Add event listeners dynamically
+                setTimeout(() => {
+                    const inputEl = document.getElementById(`harmonic-${i}`);
+                    inputEl.addEventListener('blur', (e) => handleInputBlur(e, i));
+                    inputEl.addEventListener('keydown', (e) => handleInputKeydown(e, i));
+                }, 0);
+
+                fragment.appendChild(row);
+            });
+            
+            harmonicsContainer.appendChild(fragment);
+        }
+
+        // Draw waveform on canvas
+        function drawWaveform() {
+            const width = canvas.width / window.devicePixelRatio;
+            const height = canvas.height / window.devicePixelRatio;
+
+            ctx.clearRect(0, 0, width, height);
+
+            // Center X-axis
+            ctx.beginPath();
+            ctx.moveTo(0, height / 2);
+            ctx.lineTo(width, height / 2);
+            ctx.strokeStyle = 'rgba(107, 114, 128, 0.5)'; // gray-500
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            // Draw Waveform
+            ctx.beginPath();
+            const points = width;
+            
+            // Generate 2 full periods (0 to 4π)
+            for (let i = 0; i <= points; i++) {
+                const phase = (i / points) * (4 * Math.PI);
+                let yValue = 0;
+                
+                // Calculate using ALL harmonics up to MAX_HARMONIC
+                for (let n = 1; n <= MAX_HARMONIC; n++) {
+                    const sign = (n % 2 === 0) ? -1 : 1;
+                    // Actual amplitude is (1/n) * user_multiplier
+                    const actualAmp = (1.0 / n) * multipliers[n];
+                    yValue += sign * actualAmp * Math.sin(n * phase);
+                }
+
+                const scaleY = (height / 2) * 0.45; 
+                const canvasX = i;
+                const canvasY = (height / 2) - (yValue * scaleY);
+
+                if (i === 0) {
+                    ctx.moveTo(canvasX, canvasY);
+                } else {
+                    ctx.lineTo(canvasX, canvasY);
+                }
+            }
+
+            // Styling for the glowing wave
+            ctx.strokeStyle = '#22d3ee'; // cyan-400
+            ctx.lineWidth = 2.5;
+            ctx.lineJoin = 'round';
+            
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = 'rgba(6, 182, 212, 0.6)';
+            ctx.stroke();
+            
+            ctx.shadowBlur = 0; // reset
+        }
+
+        // Canvas setup for crisp rendering
+        function resizeCanvas() {
+            const rect = canvas.parentElement.getBoundingClientRect();
+            canvas.width = rect.width * window.devicePixelRatio;
+            canvas.height = rect.height * window.devicePixelRatio;
+            ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+            drawWaveform();
+        }
+        window.addEventListener('resize', resizeCanvas);
+
+        // Web Audio API Update
+        function updateAudio() {
+            if (!isPlaying || !audioCtx || !oscillator) return;
+
+            const real = new Float32Array(MAX_HARMONIC + 1);
+            const imag = new Float32Array(MAX_HARMONIC + 1);
+
+            for (let n = 1; n <= MAX_HARMONIC; n++) {
+                real[n] = 0;
+                const sign = (n % 2 === 0) ? -1 : 1;
+                // Actual amplitude is (1/n) * user_multiplier
+                imag[n] = sign * (1.0 / n) * multipliers[n];
+            }
+
+            const wave = audioCtx.createPeriodicWave(real, imag, { disableNormalization: false });
+            oscillator.setPeriodicWave(wave);
+        }
+
+        function updateAll() {
+            drawWaveform();
+            updateAudio();
+        }
+
+        // Play/Stop Button Logic
+        playBtn.addEventListener('click', async () => {
+            if (isPlaying) {
+                if (audioCtx) await audioCtx.suspend();
+                isPlaying = false;
+                
+                playBtn.classList.replace('bg-red-600', 'bg-cyan-600');
+                playBtn.classList.replace('hover:bg-red-500', 'hover:bg-cyan-500');
+                playBtn.classList.replace('shadow-[0_0_15px_rgba(220,38,38,0.4)]', 'shadow-[0_0_15px_rgba(6,182,212,0.4)]');
+                playBtn.innerHTML = '<span class="text-2xl">▶</span> 再生 (基音: 220Hz)';
+            } else {
+                if (!audioCtx) {
+                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    gainNode = audioCtx.createGain();
+                    gainNode.gain.value = 0.15; 
+                    gainNode.connect(audioCtx.destination);
+
+                    oscillator = audioCtx.createOscillator();
+                    oscillator.frequency.value = FUNDAMENTAL_FREQ;
+                    
+                    const real = new Float32Array(MAX_HARMONIC + 1);
+                    const imag = new Float32Array(MAX_HARMONIC + 1);
+                    for (let n = 1; n <= MAX_HARMONIC; n++) {
+                        const sign = (n % 2 === 0) ? -1 : 1;
+                        imag[n] = sign * (1.0 / n) * multipliers[n];
+                    }
+                    const wave = audioCtx.createPeriodicWave(real, imag, { disableNormalization: false });
+                    oscillator.setPeriodicWave(wave);
+                    
+                    oscillator.connect(gainNode);
+                    oscillator.start();
+                } else {
+                    await audioCtx.resume();
+                    updateAudio();
+                }
+                
+                isPlaying = true;
+                playBtn.classList.replace('bg-cyan-600', 'bg-red-600');
+                playBtn.classList.replace('hover:bg-cyan-500', 'hover:bg-red-500');
+                playBtn.classList.replace('shadow-[0_0_15px_rgba(6,182,212,0.4)]', 'shadow-[0_0_15px_rgba(220,38,38,0.4)]');
+                playBtn.innerHTML = '<span class="text-2xl">■</span> 停止';
+            }
+        });
+
+        // Reset Button Logic
+        resetBtn.addEventListener('click', () => {
+            // 1. 内部の倍率データをすべて1.0にリセット
+            for (let i = 1; i <= MAX_HARMONIC; i++) {
+                multipliers[i] = 1.0;
+            }
+            
+            // 2. UIの入力フィールドの表示を1.0に更新
+            visibleHarmonics.forEach(i => {
+                const inputEl = document.getElementById(`harmonic-${i}`);
+                if (inputEl) {
+                    inputEl.value = "1.0";
+                }
+            });
+            
+            // 3. 波形とオーディオを即座に再描画・更新
+            updateAll();
+        });
+
+        // Initialize application
+        function init() {
+            generateHarmonicsUI();
+            setTimeout(resizeCanvas, 0); 
+        }
+
+        init();
+    </script>
+</body>
+</html>
